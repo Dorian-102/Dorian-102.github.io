@@ -1,0 +1,516 @@
+---
+title: "<center>Les habitants de l'Indre-et-Loire sont-ils encore intéressés par le vote ?</center>"
+author: "<center>Petit Dorian & Be--Guiesse William</center>"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    number_section: no
+    md_extensions: +markdown_in_html_blocks
+    df_print: paged
+    dev: png
+    fig_width : 6
+    fig_height : 4
+---
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r les packages utilisés, message=FALSE, warning=FALSE, include=FALSE}
+#chargement de tous les packages nécessaires. 
+library(knitr)
+library(kableExtra) #gestion des dataframe et tableau
+library(readr)
+library(ggplot2) #gestion des plots
+library(gstat)#en complément de gstat
+library(sf) #nous a servi pour placer les données géographiques
+library(dplyr) #manipulations des variables (recherches verticales/horizontale)
+library(forcats) #la manipulation des facteurs
+library(plotly) #On l'utilise pour faire des graphique interactif, très sympa !
+library(modelsummary)
+library(tidyr)
+library(stringr)
+```
+
+```{r définition des variables, include=FALSE}
+election <- read.table("data/general_results_37.txt", 
+                       sep = ";", 
+                       dec = ".", header = TRUE)
+
+ville_IeL <- st_read("data/places.shp", quiet = TRUE) |>  
+  rename("ville" = "name")
+ville_IeL$population <- as.numeric(ville_IeL$population)
+principale_ville <- ville_IeL |>  arrange(desc(population)) |>  slice(1)
+point_eau <- read_sf("data/waterways.shp", quiet = TRUE)
+point_eau <- st_set_crs(point_eau, 4326)
+admin <- st_read("data/admin-departement.shp", quiet = TRUE)
+admin <- st_set_crs(admin, 4326)
+
+#base de donnée de william
+
+
+data <- read_delim("data/general_results_37.txt", 
+                   delim = ";",
+                   show_col_types = FALSE)
+data <- data |> 
+  separate_wider_delim(id_brut_miom,
+                       delim = "_",
+                       names = c("départements", NA))
+
+
+data$`Code du b.vote` <- data$`Code du b.vote` |>
+  as.numeric()
+
+mapalette <- c("#DC88DE","#FFBB3A","#62F2DE","#6288DE","#009E34", "#7F4371" )
+
+#base de donnée de Dorian
+```
+
+```{r bdd par commune, include=FALSE}
+# base élection présidentielle 2022 t1
+
+pres22_37_t1 <- data |> 
+  filter(id_election == "2022_pres_t1") |> 
+   select("Libellé de la commune", "Code du b.vote", "départements", "Inscrits", "Abstentions", "Votants","Blancs", "Nuls", "Exprimés") |> 
+  summarise(across(everything(), sum),
+            .by = c(`Libellé de la commune`, départements, `Code du b.vote`))|> 
+  mutate(`tour électoral` = "t1")
+
+
+pres22_37_t2 <- data |> 
+  filter(id_election == "2022_pres_t2") |> 
+   select("Libellé de la commune", "Code du b.vote", "départements", "Inscrits", "Abstentions", "Votants","Blancs", "Nuls", "Exprimés") |> 
+  summarise(across(everything(), sum),
+            .by = c(`Libellé de la commune`, départements, `Code du b.vote`))|> 
+  mutate(`tour électoral` = "t2")
+
+
+pres22_37_global <- rbind(pres22_37_t1, pres22_37_t2,
+      by = NULL, all = NULL)
+```
+
+```{r tirage aléatoire des bureaux de votes, include=FALSE}
+
+result_Montrésor <- pres22_37_global |>  
+  filter(str_starts(`Libellé de la commune`, "Montrésor"))
+
+result_Saint_Genouph <- pres22_37_global |>  
+  filter(str_starts(`Libellé de la commune`, "Saint-Genouph"))
+
+result_Ile_Bouchard <- pres22_37_global |>  
+  filter(str_starts(`Libellé de la commune`, "L'Ile-Bouchard"))
+
+rural_result <- rbind(result_Montrésor,
+                      result_Ile_Bouchard,
+                      result_Saint_Genouph,
+                      by = NULL, all = NULL)
+
+rural_result <- rural_result |> 
+  mutate(col_temp = "bureau n°") |> 
+  unite(num_b.vote, col_temp, `Code du b.vote`, sep = "")
+  
+
+################################################################################
+
+
+result_Tours_t1 <- pres22_37_t1 |> 
+  filter(`Libellé de la commune` == "Tours") |> 
+  mutate(num_b.vote = row_number()) |> 
+  mutate(col_temp = "bureau n°") |> 
+  unite(num_b.vote, col_temp, num_b.vote, sep = "")
+
+
+result_Tours_t2 <- pres22_37_t2 |> 
+  filter(`Libellé de la commune` == "Tours") |> 
+   mutate(num_b.vote = row_number()) |> 
+  mutate(col_temp = "bureau n°") |> 
+  unite(num_b.vote, col_temp, num_b.vote, sep = "")
+
+###
+
+result_Tours <- rbind(result_Tours_t1, result_Tours_t2,
+      by = NULL, all = NULL)
+
+set.seed(12)
+random_bv_Tours <- sample(result_Tours$`Code du b.vote`, 3)
+
+
+result_Tours1 <- result_Tours |>
+  filter(`Code du b.vote` == random_bv_Tours[1])
+
+result_Tours2 <- result_Tours |>
+  filter(`Code du b.vote` == random_bv_Tours[2])
+
+result_Tours3 <- result_Tours |>
+  filter(`Code du b.vote` == random_bv_Tours[3])
+
+ea_result_Tours <- rbind(result_Tours1,
+                         result_Tours2,
+                         result_Tours3,
+                         by = NULL, all = NULL)
+rm(data)
+
+rm(pres22_37_global)
+rm(pres22_37_t1)
+rm(pres22_37_t2)
+
+rm(result_Ile_Bouchard)
+rm(result_Montrésor)
+rm(result_Saint_Genouph)
+
+
+rm(result_Tours_t1)
+rm(result_Tours_t2)
+
+rm(result_Tours)
+rm(result_Tours1)
+rm(result_Tours2)
+rm(result_Tours3)
+rm(random_bv_Tours)
+
+```
+
+```{r variable renommée en français}
+
+ville_IeL <- ville_IeL |> 
+  filter(type != "yes") |>
+  mutate(type = fct_drop(type))   
+ville_IeL$type <- factor(ville_IeL$type)
+ville_IeL  <- ville_IeL |> 
+  mutate(type = fct_recode(type,
+                           "grande ville" = "city", 
+                           "ferme" = "farm",
+                           "hameau" = "hamlet", 
+                           "habitation isolée" = "isolated_dwelling",
+                           "localité" = "locality",
+                           "quartier" = "neighbourhood",
+                           "quartier" = "quarter",
+                           "place" = "square",
+                           "banlieue" = "suburb",
+                           "petite ville" = "town",
+                           "village" = "village"))
+
+ville_IeL <- ville_IeL |> 
+  mutate(type = fct_lump(type, n = 5, other_level = "autre"))
+
+```
+
+# Présentation de l'étude.
+La présente étude aura pour objectif de s'intéresser à la question du vote en France, et plus particulèrement dans le département d'**Indre-et-Loire**. Si en France, le vote est droit pour les citoyens, certain en revendique un devoir. Un devoir de s'intéresser à la vie politiques de son pays et en exprimer ses accords ou ses désaccords.
+*Nous nous intéresserons à la base de donnée de la présidentielles de 2022 en observant les comportement de vote des habitants d'Indre-et-Loire. Avant toute choses, il peut être important de rappeler quelques dates historiques pour mieux comprendre l'évolution du vote, et mettre en perspective avec nos données du XXIème siècle :
+
+- <u>1791</u> : Introduction du suffrage censitaire et indirect, réservé à une élite ;
+- <u>1799</u> : Suffrage universel masculin, mais limité.;
+- <u>1815</u> : Retour au suffrage censitaire ;
+- <u>1848</u> : Instauration du suffrage universel masculin et du vote secret ;
+- <u>1944</u> : Droit de vote accordé aux femmes, marquant le début du suffrage universel complet ;
+- <u>1992</u> : Naissance de la citoyenneté de l'Union européenne, permettant aux ressortissants de voter; aux élections européennes et municipales en France; 
+
+En l'espace de quatre siècles, de nombreux changement sont alors apparus autour de ce sujet. Aujourd'hui, en 2024, les tensions politiques et les clivages idéologique pose la question de l'intérêt du droit de vote et du principe de démocratie pour les citoyens. Dans les sondages, le parti qui avait obtenu le plus de voix lors des dernières élections présidentielle n'etait pas celui d'un candidat, mais plutôt celui de l'abstention. Ce genre de phénomène devient de plus en plus courant, et davantage lorsqu'on regarde les elections législative ou encore les elections européennes. 
+
+Si nous nous appuyons sur un cadre de recherche, Anne Muxe, dans son livre : *"L'abstention : L'autre suffrage", (2014)* est l'une des chercheuses française qui s'y est intéressé. Bien avant, Anthony Down *(1957)* et Daniel Gaxy *(1978)*, ouvre la question avec **La théorie de la proximité politique**. Cette dernière suggère que l'abstention dépend de la <u>capacité des électeurs à percevoir un lien clair entre leur vote et leurs préoccupations immédiates</u>. Aux élections européennes, les électeurs peuvent se sentir éloignés des enjeux institutionnels de l'Union européenne. Pour les législatives, cette dernière endosse un rôle "subordonnée", dans le sens où elle restent principalement conditionnée par l'issu des votes de la présidentielle. 
+
+En d'autre terme, d'après ces chercheurs, si nos intérêts sont directement engagés dans une élection, l'abstention aura tendance à diminuer. En revanche, si nous n'en tirons aucune utilité, les electeurs tendent donc à éviter de se prononcer. Dans cette étude, la question auquel nous tenterons de répondre sera donc la suivante : "Dans quelle mesure l'abstention occupe-t-elle une place majeure sur le territoire français, et plus particulièrement en Indre-et-Loire ? 
+
+Pour cela, notre plan aura pour partie de traiter tout d'abord d'une analyse des élections présidentielles sur une zone urbaine d'Indre-et-Loire, puis de zones rurales. Une comparaison sera ensuite effectués entre les résultats afin d'en tirer nos conclusions.
+
+# Le département d'Indre-et-Loire :
+
+```{r carte_geographique_de_Indre_Et_Loire, fig.align="center"}
+coords <- st_coordinates(principale_ville)
+coords <- as.data.frame(coords) 
+colnames(coords) <- c("longitude", "latitude") 
+# Visualiser les villes sur la carte avec leurs coordonnées et les noms des axes renommés 
+ggplot() + geom_sf(data = admin, color = "grey") + geom_sf(data = point_eau, color = "blue", alpha = 0.1) + geom_sf(data = principale_ville, color = "black", size = 3, shape = 2) + geom_text(aes(x = coords$longitude, y = coords$latitude, label = principale_ville$ville), size = 3, color = "black", nudge_y = 0.04) + labs(title = "La ville de Tours en Indre-et-Loire", x = "", y = "") + theme_minimal()
+```
+
+## Information globale :
+Le département d'Indre-et-Loire fait partie des 101 départements français (métropole et outre-mer) avec un peu plus de 610 000 habitants sur son territoire. Bien que ce chiffre reste moindre par rapport à la capitale et aux autres métropoles régionales, il compte en son sein un patrimoine historique et culturel très singulier. Connu pour ses somptueux châteaux et ses paysages pittoresques, le territoire se pare des reflets de la Loire pour attirer chaque année le regard des touristes du monde entier. 
+
+<div style="display: flex; justify-content: space-between; align-items: flex-start;">
+  <figure style="text-align: center;">
+    <img src="https://www.campingfrance.com/asset/cms/160801/config/112636/le-chateau-de-chenonceau-en-indre-et-loire.jpg" width="65%">
+    <figcaption style="font-size: 0.8em;">source : "Le château de Chenonceau en Indre-et-Loire", (campingfrance.com)</figcaption>
+  </figure>
+  
+  <figure style="text-align: center;">
+    <img src="https://www.voyageavecnous.fr/wp-content/uploads/2021/08/visiter-chateau-amboise.jpg" width="40%">
+    <figcaption style="font-size: 0.8em;">source : "Le château d'Amboise en Indre-et-Loire", (voyageavecnous.fr)</figcaption>
+  </figure>
+</div>
+
+## Quel genre de territoire ?
+D'après notre seconde base de donnée ([voir ici](https://www.data.gouv.fr/fr/datasets/carte-des-departements-2-1/)), la grande partie des zones d'habitations sont plutôt les hameaux (49,18%), devant les localités (29,6%) et les habitations isolées (15,8%). Ainsi, hormis certaines communes qui profitent d'une plus grande dynamique et d'un meilleur aménagement urbain, la grande partie du territoire reste plutôt majoritairement rurale. Ce graphique nous aide à mieux comprendre tout cela et en déduire une certaine tendance : 
+
+```{r les_diférentes_types_de_zones_habitables, warning=FALSE, fig.align="center"}
+
+diagram_zone_Tours <- ggplot(data = ville_IeL, aes(x = fct_rev(fct_infreq(type)), fill = type, alpha = 0.5)) +
+  geom_bar(aes(y = after_stat(count)/sum(after_stat(count)),
+               text = paste("Pourcentage:", round(after_stat(count)/sum(after_stat(count)) * 100, 2), "%"))) + 
+  coord_flip() +
+  labs(title = "Zones d'habitation en Indre-et-Loire" ,y = "Pourcentage", x = "") + 
+  theme_minimal() +
+  theme(legend.position = "none", 
+        plot.title = element_text(size = 11, hjust = 0.5))
+
+# Transformer ce diagramme en un diagramme interactif
+diagram_interactif <- ggplotly(diagram_zone_Tours, tooltip = "text")
+diagram_interactif
+
+```
+
+# Etude de cas en zone urbaine : le vote à Tours
+
+### Information globale : 
+
+la commune de Tours fait partie des communes les plus importantes du département. Elle compte le plus grand nombre d'habitant sur son territoire, devant Joué-lès-Tours et Saint-Cyr. Au vu de la densité de sa population, de nombreux bureaux de votes y sont installés. On en compte 85 exactement, répartie entre le centre ville et la phériphérie (Tours Nord et Tours Sud) couvrant ainsi 34,67 km<sup>2</sup> de superficie.
+
+### Analyse des données de vote : 
+La ville de tours étant composée de 85 bureaux de votes, nous avons donc utilisé un code générant aléatoirement 3 bureaux de votes afin de faciliter et simplifier les comparaison qui seront fait par la suite avec les zones rurales. 
+
+
+```{r présentation des bureaux aléatoires de Tours parmi les 85, fig.width=8, fig.height=6, fig.align="center"}
+set.seed(12)
+ea_result_Tours <- ea_result_Tours |> 
+  mutate(taux_abstention = (Abstentions / Inscrits) * 100)
+ggplot(ea_result_Tours, aes(x = num_b.vote)) +
+  geom_col(aes(y = Inscrits, fill = num_b.vote)) +
+  geom_col(aes(y = Abstentions, color = "Abstentions"),
+           alpha = 0.65, width = 0.965) +
+  scale_fill_manual(values = mapalette[4:6], name = "Communes") +
+  scale_color_manual(values = "black", name = "Abstentions",
+                     labels = c("Abstentions")) +
+  labs(title = "Représentation de la part d'abstention par tour électoral dans 3 bureaux de Tours", caption = "Source : data.gouv", x = NULL, y = "Nombre d'inscrits") +
+  geom_text(aes(y = Inscrits, label = Inscrits), vjust = 1.2, color = "white") +
+  geom_text(aes(y = Abstentions, label = sprintf("%.1f %%", taux_abstention)), 
+            vjust = 1.5, color = "white") +
+  guides(fill = guide_legend(title = NULL), 
+         color = guide_legend(title = NULL)) +
+  theme(legend.position = "bottom") +
+  facet_wrap(~`tour électoral`, 
+             labeller = labeller(`tour électoral` = c("t1" = "Premier tour",
+                                                      "t2" = "Deuxième tour")))
+```
+
+
+D'après les résultats observés au premier tour électoral à Tours, dans le bureau 5 de Tours, 580 electeurs y sont inscrits et 25.7% se sont abstenus. Dans le bureaux 6, 932 inscrits pour 25.9%, et dans le dernier, le bureau numéro 80, 785 inscrits pour 33.1% d'abstention. Sur le deuxième tour, la tendance est à la hausse dans les 3 bureaux. Le premier, augmente de 3.4 point de pourcentage, le seconde de 1 et le troisième 2,3. 
+
+Bien que certaines variables auraient pu être omises, l'intérêt des français pour le vote aurait tendance à diminuer entre le tour 1 et le tour 2. Par exemple, la localisation géographique de ces bureaux de vote dans la commune pourraient avoir une importance dans ces chifres. Entre le quartier du vieux Tours ou bien celui du quartier du Sanitas, les populations restent très différentes et les préoccupations de ces habitants aussi. C'est pour cela qu'il est important de prendre en limite de notre études, des causes multifactorielles (socio-économique et politiques) pour nuancer nos résultats observés.
+Voyons désormais ce qui apparait pour l'intérêt du vote dans les populations de zones rurales.
+
+# Etude de cas en zone rurale : les votes à Montrésor, L'île-Bouchard et Saint-Genouph
+
+### Information globale : 
+D'après la nomenclature de 2020 de l'INSEE, on définit par *zone rurale* tout territoire partageant au moins l'une de ses caractéristiques suivantes :
+
+- <u>Faible densité par mètre<sup>2</sup></u> : **avec une densité de moins de 30/hab par mètre<sup>2</sup> on parle de zone très peu dense**;
+- <u>Caractère agricole et patrimonial</u>;
+- <u>Pas d'intégrité à une unité urbaine proche</u>: **l'administration de ce territoire ne doit pas dépendre d'une grande ville à proximité**;
+
+Voici donc une brève présentation de ces trois communes rurales d'Indre-et-Loire :
+
+- Montrésor. Ayant été classés "Plus beaux villages de France", cette petite commune abrite en son sein un patrimoine historique et architechtural du XVIème siècle. L'église Saint-Jean-Baptiste et son chateau de la Renaissance restent les lieux emblématique pour les touristes qui aimeraient s'y perdre dans les rues. Nous ne retrouverons pas comme à Tours les fameuses maisons à colombage mais plotût un style en pierre, typique des lieux.
+
+- Saint-Genouph. Situé à quelques kilomètres à l'ouest de Tours, la commmune s'offre le charme d'être bordé par le Cher, et d'un paysage verdoyant en son sein. Comptant environ un peu plus de 1000 habitants et 216 hab/km<sup>2</sup>, il y fait bon vivre et la tranquilité des lieux se fait vite ressentir ! 
+Pour son Eglise Romane et l'histoire derrière son évèque, la ville se tient donc d'un patrimoine très singulier. 
+
+- L'Ile-Bouchard. Bien moins connu dans le département, l'Ile-Bouchard est une commune d'un peu plus de 1500 habitant, pourtant très célèbre pour son histoire de pélerinage. Néansmoins, elle épouse tout autant le charme et l'ambiance de la Touraine.
+
+### Analyse des données de vote : 
+Comparé à Tours, le nombre de bureaux de votes est bien plus petit. Il devient donc plus simple de présenter par commune rurale les différents résultats dans un diagramme en barre comme ci-dessous. Comme précédemment, le taux d'abstention est pourcentage. 
+
+```{r représentation des bureaux de votes des communes rurales, fig.width=8, fig.height=6, fig.align="center"}
+rural_result <- rural_result |> 
+  mutate(taux_abstention = (Abstentions / Inscrits) * 100)
+
+ggplot(rural_result, aes(x = `Libellé de la commune`)) +
+  geom_col(aes(y = Inscrits, fill = `Libellé de la commune`)) +
+  geom_col(aes(y = Abstentions, color = "Abstentions"),
+           alpha = 0.65, width = 0.965) +
+  scale_fill_manual(values = mapalette[1:3], name = "Communes") +
+  scale_color_manual(values = "black", name = "Taux d'abstention",
+                     labels = c("Abstentions")) +
+  labs(title = "Représentation de la part d'abstention par tour électoral dans 3 communes rurales:", caption = "Source : data.gouv", x = NULL, y = "Nombre d'inscrits") +
+  geom_text(aes(y = Inscrits, label = Inscrits), vjust = 1, color = "white", size = 4) +
+  geom_text(aes(y = Abstentions, label = sprintf("%.1f %%", taux_abstention)), 
+            vjust = 1.5, color = "white", size = 3.5) +
+  guides(fill = guide_legend(title = ,NULL), 
+         color = guide_legend(title = NULL)) +
+  theme(legend.position = "bottom") +
+  facet_wrap(~`tour électoral`, 
+             labeller = labeller(`tour électoral` = c("t1" = "Premier tour",
+                                                      "t2" = "Deuxième tour")))
+```
+
+D'après les résultats observés au premier tour électoral en zone rurale, à l'Ile-Bouchard, 1212 électeur sont inscrits et 26.7% se sont abstenu. Pour Montrésor, on compte 274 inscrits pour 21.2% d'abstention. Enfin, pour Saint-Genouph, 807 electeurs pour 23%. 
+Lors du second tour electoral, la tendance a elle aussi suivi une hausse, sauf pour l'Ile-Bouchard. Pour l'Ile-Bouchard, l'abstention diminue de 0.6 point de pourcentage. Pour Montrésor, elle augmente de 0.3 point de pourcentage, mais c'est surtout pour Saint-Genouph où l'abstention se fait davantage ressentir avec une hausse de 2.1 point de pourcentage de hausse.
+
+
+# Comparaison des résultats entre les zones rurales et urbaines. 
+
+Dans le tableau ci-dessous, il est possible d'observer la tendance globale du comportement des electeurs pour les deux zones. À la fois, on retrouve bien les pourcentage et les effectifs qui étaient précédemment présentés dans les deux diagrammes en barre, mais de l'autre on y intègre aussi d'autres choix de votes comme par exemple le vote blanc ou le vote nul en pourcentage par nombre d'inscrit. Nonobstant, leur proportion restent tout de même bien plus faible que le taux de l'abstention dans les comportements des electeurs. 
+
+```{r tableau kable avec fonction, echo = FALSE}
+
+
+prop_abst <- function(x) {
+  A <- (x$Abstentions/x$Inscrits)*100
+  B <- round(A, digits = 2)
+  return(B)
+}
+
+prop_blancs <- function(x) {
+  A <- (x$Blancs/x$Inscrits)*100
+  B <- round(A, digits = 2)
+  return(B)
+  
+}
+
+f_diff_vote <- function(x) {
+  A <- c(x[2] - x[1],
+         x[2] - x[1],
+         x[4] - x[3],
+         x[4] - x[3],
+         x[6] - x[5],
+         x[6] - x[5])
+  B <- round(A, digits = 2)
+  return(B)
+}
+
+
+prop_result_fun <- function(x) {
+  x |> 
+    mutate("% Abst/ins" = prop_abst(x)) |> 
+    mutate("dif % Abst/ins" = f_diff_vote(prop_abst(x))) |> 
+    mutate("% Blancs/ins" = prop_blancs(x)) |> 
+    mutate("dif % Blancs/ins" = f_diff_vote(prop_blancs(x))) |>
+    select(-Inscrits, -Abstentions, -Votants, 
+           -Blancs, -Nuls, -Exprimés, -départements, -taux_abstention)
+}
+
+
+result_Tours_prop <- prop_result_fun(ea_result_Tours) |> 
+  select(-`Code du b.vote`)
+  
+
+result_rural_prop <- prop_result_fun(rural_result) |> 
+  select(-num_b.vote)
+
+
+result_Tours_prop |> kable() |> 
+  kable_styling(full_width = FALSE, 
+                position = "center", 
+                bootstrap_options = c("striped", "hover"))
+  
+result_rural_prop |> kable() |> 
+  kable_styling(full_width = FALSE, 
+                position = "center", 
+                bootstrap_options = c("striped", "hover"))
+
+
+```
+Ce qui reste tout de même intéressant ici pour notre étude c'est bien évidemment cette **diversité du vote** et la choix par lequel les électeurs exprime de différentes manières **leur intérêt pour la politique**. Bien que marginal de prime abord, le taux de vote **nul et blanc** renforcent eux aussi, le sentiment d'un désintérêt des votants vis à vis de la politique de leur pays et des partis en liste.
+
+
+
+## Test de comparaison de proportion
+
+Après avoir fait une analyse des données que nous avions sur les deux types de zones géographiques, il est tout aussi essentiel de voir si les résultats sont divergents (ou convergent) en terme de proportion selon ces deux territoires spaciaux. Rappelons tout de même que l'objectif de notre étude restent de démontrer dans quel mesure les francais sont-ils encore intéressés par le vote, et ceci, en observant l'abstention (qui témoigne directement de l'intérêt d'un électeur de se déplacer aux urnes). 
+
+Pour cela, nous allons donc préparer un test de proportion. Notre hypothèse de départ sera donc de montrer que les deux populations (urbaines et rurales) ont les mêmes proportions. Notre hypothèses alternative qu'on notera "H1", stipulera donc le cas échéant : "les deux population ont des proportions d'abstentions différentes (distinctes). Ainsi, dans le cas d'un rejet de notre hypothèse de départ, on supposera que les deux échantillons ne peuvent avoir des tendances similaires et donc, des distinctions seraient à mettre en évidence entre les deux populations.
+
+Nous allons commencer par faire la somme des nombre d'inscrits et d'abstentionniste pour les 3 bureaux des communes rurales, puis on fera de même pour la commune de Tours avec les nombres d'inscrits et d'abstentions dans les 3 bureaux choisis aléatoirement. 
+
++ <u>Zone rurale t1</u> : 
+ - nombre d'inscrits : **2293**
+ - nombre d'abstentions : **552**
++ <u>Zone urbaine t1</u> :
+ - nombre d'inscrits : **2297**
+ - nombre d'abstentions : **652**
+
+```{r}
+resultat_test_t1 <- prop.test(x = c(552, 652),
+                           n = c(2293, 2297),
+                           alternative = "two.sided")
+p_value1 <- round(resultat_test_t1$p.value, 4) # Arrondi de la p-value
+taux_rurale_t1 <- round((552 / 2293) * 100, 2)  # Taux zone rurale
+taux_urbaine_t1 <- round((652 / 2297) * 100, 2) # Taux zone urbaine
+valeur_test_t1 <- ifelse(p_value1 < 0.05, 
+                     "Le test est significatif au seuil de 5%. Il existe une différence significative des proportions.", 
+                     "L'hypothèse H0 est respectée. Les proportions sont similaires entre les zones rurales et urbaines.")
+resultat_markdown <- paste0("
+### Résultat du Test de Proportion tour 1 
+- **Taux d'abstention zone rurale :** ", taux_rurale_t1, " %  
+- **Taux d'abstention zone urbaine :** ", taux_urbaine_t1, " %
+
+**Conclusion du test :** ", valeur_test_t1)
+knitr::asis_output(resultat_markdown)
+
+```
+
+Cette fois-ci, on réalise le même test avec les proportions du tour 2.
+
+
++ <u>Zone rurale t2</u> : 
+ - nombre d'inscrits : **2293**
+ - nombre d'abstentions : **562**
++ <u>Zone urbaine t2</u> :
+ - nombre d'inscrits : **2297**
+ - nombre d'abstentions : **698**
+ 
+```{r}
+resultat_test_t2 <- prop.test(x = c(562, 698),
+                           n = c(2293, 2297),
+                           alternative = "two.sided")
+p_value2 <- round(resultat_test_t2$p.value, 4) # Arrondi de la p-value
+taux_rurale_t2 <- round((562 / 2293) * 100, 2)  # Taux zone rurale
+taux_urbaine_t2 <- round((698 / 2297) * 100, 2) # Taux zone urbaine
+valeur_test_t2 <- ifelse(p_value2 < 0.05, 
+                     "Le test est significatif au seuil de 5%. Il existe une différence significative des proportions.", 
+                     "L'hypothèse H0 est respectée. Les proportions sont similaires entre les zones rurales et urbaines.")
+resultat_markdown <- paste0("
+### Résultat du Test de Proportion tour 2 
+- **Taux d'abstention zone rurale :** ", taux_rurale_t2, " %  
+- **Taux d'abstention zone urbaine :** ", taux_urbaine_t2, " %  
+
+**Conclusion du test :** ", valeur_test_t2)
+knitr::asis_output(resultat_markdown)
+
+```
+
+Et enfin, dans ce dernier test, on recommence comme les deux autres mais cette fois-ci, en prenant la variation entre les proportions de la zone urbaine au tour 1 en comparaison à celle au tour 2. Notre hypothèse H0 sera cette fois-ci : "la proportion d'abstention en ville entre les deux tours sont identique", et notre hypothèse alternative sera alors : "la proportion d'abstention en ville entre les deux tours est distincte". 
+
+```{r}
+resultat_test_ville <- prop.test(x = c(698, 652), 
+                                       n = c(2297,2297),
+                                       alternative = "two.sided")
+p_value_ville <- round(resultat_test_ville$p.value, 4) # Arrondi de la p-value
+taux_urbain_t1 <- round((652 / 2297) * 100, 2) # Taux zone urbaine
+taux_urbain_t2 <- round((698 / 2297) * 100, 2) # Taux zone urbaine
+valeur_test_ville <- ifelse(p_value_ville < 0.05, 
+                     "Le test est significatif au seuil de 5%. Il existe une différence significative des proportions entre la proportion de la ville entre le t1 et le t2", 
+                     "L'hypothèse H0 est respectée. Les proportions sont similaires entre la proportion d'abstention de la ville entre le t1 et le t2.")
+resultat_markdown <- paste0("
+### Résultat du Test de Proportion en ville entre t1 et t2 :
+- **Taux d'abstention zone rurale :** ", taux_urbain_t1, " %  
+- **Taux d'abstention zone urbaine :** ", taux_urbain_t2, " %
+
+**Conclusion du test :** ", valeur_test_ville)
+knitr::asis_output(resultat_markdown) #on met ça pour ne pas qu'il ressort le résultat brute.
+```
+
+
+### Discussion sur les résultats
+
+Les résultats de nos tests de proportions pour le premier et deuxième tour de l'election présidentielle démontrent que les proportions des deux populations sont distinctes. 
+
+Par conséquent, avec la combinaison des bureaux numéro 5,6 et 80 de Tours, il n'est pas possible de dire que les comportements sont similaires dans les deux territoires. Une certaine diversité s'observent alors et témoigne directement de la singularité existante entre électeurs de campagne et électeur de ville. 
+
+En revanche, le troisième et dernier test qui avait pour intérêt de savoir s'il y avait des variations notable et significatives entre le taux d'abstention du premier et deuxième tour en zone urbaine à Tours, s'est quant à lui, conclu par un non-rejet de notre hypothèse de départ. En conséquence, la hausse de la proportion d'abstention entre les deux stades électoraux (premier et deuxième tour), n'est pas pour autant significative à Tours. 
+
+
+# Conclusion
+
+Au cours de notre travail de recherche, nous avons cherché à apporter des réponses concrètes à un sujet de société. L'intérêt du vote des électeurs français, et plus particulièrement ceux d'Indre-et-Loire, témoigne de cette envie quelque peu mitigé de se rendre aux urnes. La théorie de la proximité politique, développée par Gaxy et Down, met en lumière l’importance de l’intérêt personnel des citoyens dans leur participation électorale, en fonction du type d’élection concerné. Toutefois, même lors des élections présidentielles, qui occupent une place centrale dans le paysage politique, le phénomène de l’abstention demeure là encore fortement présent."
+
+
